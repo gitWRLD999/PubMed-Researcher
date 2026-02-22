@@ -59,7 +59,7 @@ def run_agent():
             # 2. Gemini Analysis (using Structured Output for 2026)
             prompt = f"Analyze this study: {paper['title']}. Abstract: {paper['abstract']}. Output JSON: {{'summary': '1-sentence', 'hypothesis': 'grant idea'}}"
             response = client.models.generate_content(
-                model="gemini-2.0-flash", 
+                model="gemini-3-flash-preview", 
                 contents=prompt,
                 config={'response_mime_type': 'application/json'}
             )
