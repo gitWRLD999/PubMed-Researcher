@@ -1,6 +1,7 @@
 # pip install google-genai requests
 import os, requests, json, xml.etree.ElementTree as ET
-from google import genai import time
+from google import genai 
+import time
 
 # --- CONFIG ---
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
