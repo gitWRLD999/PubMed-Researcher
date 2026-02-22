@@ -80,6 +80,11 @@ def run_agent():
                 }
             }
             requests.post(notion_url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                print(f"🚀 Success! '{paper['title'][:30]}...' is now in Notion.")
+            else:
+                print(f"❌ Notion Error {response.status_code}: {response.text}")
 
 if __name__ == "__main__":
     run_agent()
