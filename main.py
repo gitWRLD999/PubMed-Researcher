@@ -65,7 +65,8 @@ def run_agent():
                 contents=prompt,
                 config={'response_mime_type': 'application/json'}
             )
-            analysis = json.loads(response.text)
+            raw_data = json.loads(response.text)
+            analysis = raw_data[0] if isinstance(raw_data, list) else raw_data
 
             # 3. Push to Notion
             notion_url = "https://api.notion.com/v1/pages"
@@ -79,7 +80,7 @@ def run_agent():
                     "Link": {"url": paper['url']}
                 }
             }
-            requests.post(notion_url, headers=headers, json=payload)
+            notion_res = requests.post(notion_url, headers=headers, json=payload)
             
             if response.status_code == 200:
                 print(f"🚀 Success! '{paper['title'][:30]}...' is now in Notion.")
