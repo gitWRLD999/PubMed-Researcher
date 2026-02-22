@@ -3,9 +3,9 @@ import os, requests, json, xml.etree.ElementTree as ET
 from google import genai
 
 # --- CONFIG ---
-GEMINI_KEY = os.getenv("AIzaSyAh-EaNjKHRWpkFDgtuCnBj7M4SM8QeuAc")
-NOTION_TOKEN = os.getenv("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")
-DATABASE_ID = os.getenv("30f458b2deda805fb401f8f9bf641c4d")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 
 client = genai.Client(api_key=GEMINI_KEY)
 
