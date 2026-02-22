@@ -80,12 +80,15 @@ def run_agent():
                     "Link": {"url": paper['url']}
                 }
             }
+            
+            # Save the result of the Notion push into 'notion_res'
             notion_res = requests.post(notion_url, headers=headers, json=payload)
             
-            if response.status_code == 200:
+            # Check 'notion_res', NOT 'response'
+            if notion_res.status_code == 200:
                 print(f"🚀 Success! '{paper['title'][:30]}...' is now in Notion.")
             else:
-                print(f"❌ Notion Error {response.status_code}: {response.text}")
+                print(f"❌ Notion Error {notion_res.status_code}: {notion_res.text}")
 
 if __name__ == "__main__":
     run_agent()
