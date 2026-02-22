@@ -10,20 +10,40 @@ DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 client = genai.Client(api_key=GEMINI_KEY)
 
 def get_papers(query):
-    """Hits PubMed ESearch + EFetch to get paper data."""
     search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax=3"
-    ids = requests.get(search_url).json().get('esearchresult', {}).get('idlist', [])
+    try:
+        res = requests.get(search_url)
+        res.raise_for_status() # Check if the website actually loaded
+        ids = res.json().get('esearchresult', {}).get('idlist', [])
+    except Exception as e:
+        print(f"⚠️ Search failed for {query}: {e}")
+        return []
+
+    if not ids:
+        print(f"ℹ️ No new papers found for {query}.")
+        return []
     
     papers = []
     for pmid in ids:
         fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
-        root = ET.fromstring(requests.get(fetch_url).content)
-        title_el = root.find(".//ArticleTitle")
-        abstract_els = root.findall(".//AbstractText")
+        fetch_res = requests.get(fetch_url)
         
-        title = title_el.text if title_el is not None else "No Title"
-        abstract = " ".join([p.text for p in abstract_els if p.text])
-        papers.append({"title": title, "abstract": abstract, "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"})
+        # --- THE SAFETY CHECK ---
+        if fetch_res.status_code != 200 or b"<?xml" not in fetch_res.content:
+            print(f"⚠️ Could not get XML for PMID {pmid}. Skipping...")
+            continue
+            
+        try:
+            root = ET.fromstring(fetch_res.content)
+            title_el = root.find(".//ArticleTitle")
+            abstract_els = root.findall(".//AbstractText")
+            
+            title = title_el.text if title_el is not None else "No Title"
+            abstract = " ".join([p.text for p in abstract_els if p.text])
+            papers.append({"title": title, "abstract": abstract, "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"})
+        except ET.ParseError:
+            print(f"⚠️ XML Parse Error for PMID {pmid}. Skipping...")
+            
     return papers
 
 def run_agent():
