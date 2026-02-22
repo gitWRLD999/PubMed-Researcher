@@ -1,6 +1,6 @@
 # pip install google-genai requests
 import os, requests, json, xml.etree.ElementTree as ET
-from google import genai 
+from google import genai
 import time
 
 # --- CONFIG ---
@@ -90,5 +90,3 @@ def run_agent():
 if __name__ == "__main__":
     run_agent()
 
-if __name__ == "__main__":
-    run_agent()
