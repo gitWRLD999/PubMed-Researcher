@@ -97,7 +97,10 @@ def get_papers(query: str, retmax: int = RESULTS_PER_QUERY) -> list:
             continue
         try:
             root     = ET.fromstring(r.content)
-            title    = (root.find(".//ArticleTitle") or ET.Element("x")).text or "No Title"
+            title_el = root.find(".//ArticleTitle")
+            title    = "".join(title_el.itertext()).strip() if title_el is not None else "No Title"
+            if not title:
+                title = "No Title"
             abstract = " ".join(
                 p.text for p in root.findall(".//AbstractText") if p.text
             )
@@ -139,7 +142,7 @@ Return ONLY valid JSON with exactly these keys:
 """
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.0-flash-lite",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -177,7 +180,7 @@ Return ONLY valid JSON with exactly these keys:
 """
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.0-flash-lite",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
