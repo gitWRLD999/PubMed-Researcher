@@ -132,9 +132,18 @@ Return ONLY valid JSON with these exact keys:
         )
         raw = json.loads(response.text)
         # Handle list-wrapped responses
-        return raw[0] if isinstance(raw, list) else raw
+        result = raw[0] if isinstance(raw, list) else raw
+        # Validate expected keys came back — surface any Gemini schema drift early
+        expected_keys = {"summary", "methods", "population", "effect_sizes", "hypothesis"}
+        missing_keys  = expected_keys - set(result.keys())
+        if missing_keys:
+            print(f"  ⚠️  Gemini returned incomplete JSON — missing: {missing_keys}")
+            print(f"      Got keys: {list(result.keys())}")
+        return result
     except Exception as e:
-        print(f"  ⚠️  Gemini analysis failed for '{paper['title'][:40]}': {e}")
+        print(f"  Gemini analysis failed for '{paper['title'][:40]}': {e}")
+        if hasattr(e, '__context__'):
+            print(f"      raw response: {response.text[:300]}")
         return None
 
 
@@ -170,6 +179,38 @@ Return ONLY valid JSON with:
         return {"contradictions": "Synthesis error.", "new_hypotheses": ""}
 
 
+# ── Notion: schema check (run once at startup) ────────────────────────────────
+
+def check_notion_schema():
+    """Fetches your Notion database and prints all property names + types.
+    Run this first to confirm your property names match exactly."""
+    url     = f"https://api.notion.com/v1/databases/{DATABASE_ID}"
+    headers = {
+        "Authorization":  f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+    }
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code != 200:
+        print(f"  ❌ Could not fetch schema: {res.status_code} — {res.text}")
+        return
+
+    props = res.json().get("properties", {})
+    print("\n📋 Notion database properties found:")
+    for name, meta in props.items():
+        print(f"   '{name}' → {meta['type']}")
+
+    # Warn about any expected properties that are missing
+    expected = {"Name", "Summary", "Methods", "Population", "EffectSizes",
+                "Hypothesis", "Contradicts", "Link", "Query", "Status"}
+    missing = expected - set(props.keys())
+    if missing:
+        print(f"\n  ⚠️  MISSING properties (create these in Notion): {missing}")
+        print("  ℹ️  Property names are case-sensitive. Update the payload dict in")
+        print("      push_to_notion() to match your exact Notion column names if different.\n")
+    else:
+        print("\n  ✅ All expected properties found.\n")
+
+
 # ── Notion: push one row ──────────────────────────────────────────────────────
 
 def push_to_notion(paper: dict, analysis: dict, synthesis: dict, query: str) -> bool:
@@ -181,8 +222,8 @@ def push_to_notion(paper: dict, analysis: dict, synthesis: dict, query: str) -> 
     }
 
     def rt(text: str) -> list:
-        # Notion rich_text blocks; truncate to 2000 chars (Notion API limit)
-        return [{"text": {"content": str(text)[:2000]}}]
+        # Notion rich_text blocks — "type" is required or fields are silently dropped
+        return [{"type": "text", "text": {"content": str(text)[:2000]}}]
 
     # Build the contradiction note: only include if the paper is mentioned
     contradiction_note = synthesis.get("contradictions", "")
@@ -216,11 +257,21 @@ def push_to_notion(paper: dict, analysis: dict, synthesis: dict, query: str) -> 
         },
     }
 
+    # Log fields being sent so name mismatches are immediately obvious
+    print(f"  Sending fields: {list(payload['properties'].keys())}")
+
     res = requests.post(url, headers=headers, json=payload, timeout=15)
     if res.status_code == 200:
         return True
     else:
-        print(f"  ❌ Notion {res.status_code}: {res.text[:200]}")
+        # Print full error so we can actually see what Notion rejects
+        print(f"  Notion error {res.status_code}:")
+        try:
+            err = res.json()
+            print(f"     message: {err.get('message', 'no message')}")
+            print(f"     code:    {err.get('code', 'no code')}")
+        except Exception:
+            print(f"     raw: {res.text}")
         return False
 
 
@@ -281,7 +332,9 @@ def run_scan():
 # ── Scheduler ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("🧠 Research Co-Pilot starting up…")
+    print("Research Co-Pilot starting up...")
+    # Validate Notion property names before doing any work
+    check_notion_schema()
     run_scan()   # Run immediately on launch
 
     schedule.every(SCAN_INTERVAL_MINUTES).minutes.do(run_scan)
@@ -289,6 +342,3 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
-
-if __name__ == "__main__":
-    run_agent()
