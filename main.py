@@ -11,7 +11,7 @@ PUBMED_KEY   = os.getenv("PUBMED_API_KEY")
 
 # Initialize Gemini Client
 client = genai.Client(api_key=GEMINI_KEY)
-MODEL_NAME = "gemini-2.0-flash" # High-speed stable version
+MODEL_NAME = "gemini-3-flash-preview" # High-speed stable version
 
 def clean_json_response(text):
     """Strips markdown code blocks from AI response to ensure valid JSON parsing."""
