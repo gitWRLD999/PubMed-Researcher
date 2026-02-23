@@ -98,7 +98,7 @@ Title: {paper['title']}
 Abstract: {paper['abstract']}"""
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-04-17",
+        model="gemini-3-flash-preview",
         contents=prompt,
         config={'response_mime_type': 'application/json'}
     )
@@ -130,7 +130,7 @@ Return JSON with exactly these keys:
 - new_hypotheses: 2-3 novel research hypotheses that emerge from reading these together."""
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-04-17",
+        model="gemini-3-flash-preview",
         contents=prompt,
         config={'response_mime_type': 'application/json'}
     )
