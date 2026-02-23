@@ -1,26 +1,4 @@
-# ============================================================
-# Autonomous Research Co-Pilot — Always-On Literature Brain
-# ============================================================
 # pip install google-genai requests
-#
-# REQUIRED GITHUB SECRETS:
-#   GEMINI_API_KEY, NOTION_TOKEN, NOTION_DATABASE_ID
-#   PUBMED_API_KEY (optional but recommended to avoid rate limits)
-#
-# NOTION DATABASE PROPERTY NAMES (must match exactly):
-#   Name          -> Title
-#   Date          -> Date
-#   Summary       -> Rich Text
-#   Methods       -> Rich Text
-#   Population    -> Rich Text
-#   EffectsSizes  -> Rich Text   <- double-S, matches your Notion column
-#   Hypothesis    -> Rich Text
-#   Contradicts   -> Rich Text
-#   Link          -> URL
-#   Query         -> Rich Text
-#   Status        -> Select      (options: New, Reviewed, Flagged)
-# ============================================================
-
 import os, requests, json, xml.etree.ElementTree as ET, time
 from datetime import datetime
 from google import genai
@@ -30,200 +8,162 @@ GEMINI_KEY   = os.getenv("GEMINI_API_KEY")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID  = os.getenv("NOTION_DATABASE_ID")
 PUBMED_KEY   = os.getenv("PUBMED_API_KEY")
-RESULTS_PER_QUERY = 5   # Papers fetched per keyword
 
 client = genai.Client(api_key=GEMINI_KEY)
 
 
-# -- Deduplication: query Notion directly -------------------------------------
-# GitHub Actions runners are ephemeral -- local files vanish between runs.
-# We check Notion itself for existing URLs so we never push duplicates.
+# ── Step 1: Pull existing Notion URLs to prevent duplicates ───────────────────
+# GitHub Actions runners are ephemeral — local files vanish between runs.
+# So we query Notion itself as the source of truth for what's already been pushed.
 
-def get_existing_pubmed_urls() -> set:
-    """Fetch all Link values already in the Notion database."""
+def get_existing_urls():
     url     = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
-    headers = {
-        "Authorization":  f"Bearer {NOTION_TOKEN}",
-        "Notion-Version": "2022-06-28",
-        "Content-Type":   "application/json",
-    }
-    existing_urls = set()
-    payload = {"page_size": 100}
-
+    headers = {"Authorization": f"Bearer {NOTION_TOKEN}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"}
+    existing = set()
+    payload  = {"page_size": 100}
     while True:
-        res = requests.post(url, headers=headers, json=payload, timeout=15)
-        if res.status_code != 200:
-            print(f"  Warning: Could not fetch existing Notion pages ({res.status_code})")
-            break
+        res  = requests.post(url, headers=headers, json=payload)
         data = res.json()
         for page in data.get("results", []):
-            link_prop = page.get("properties", {}).get("Link", {})
-            link_val  = link_prop.get("url")
-            if link_val:
-                existing_urls.add(link_val)
+            link = page.get("properties", {}).get("Link", {}).get("url")
+            if link:
+                existing.add(link)
         if data.get("has_more"):
             payload["start_cursor"] = data["next_cursor"]
         else:
             break
+    print(f"  Found {len(existing)} existing paper(s) in Notion.")
+    return existing
 
-    print(f"  Found {len(existing_urls)} existing paper(s) already in Notion.")
-    return existing_urls
 
+# ── Step 2: Fetch papers from PubMed ─────────────────────────────────────────
 
-# -- PubMed fetch -------------------------------------------------------------
+def get_papers(query):
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+    auth     = f"&api_key={PUBMED_KEY}" if PUBMED_KEY else ""
+    search_url = f"{base_url}esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax=5&sort=date{auth}"
 
-def get_papers(query: str, retmax: int = RESULTS_PER_QUERY) -> list:
-    base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-    auth = f"&api_key={PUBMED_KEY}" if PUBMED_KEY else ""
-
-    search_url = (
-        f"{base}esearch.fcgi?db=pubmed&term={requests.utils.quote(query)}"
-        f"&retmode=json&retmax={retmax}&sort=date{auth}"
-    )
     try:
-        res = requests.get(search_url, timeout=15)
+        res = requests.get(search_url)
         res.raise_for_status()
-        ids = res.json().get("esearchresult", {}).get("idlist", [])
-    except Exception as e:
-        print(f"  PubMed search failed: {e}")
+        ids = res.json().get('esearchresult', {}).get('idlist', [])
+    except Exception:
         return []
 
     papers = []
     for pmid in ids:
-        time.sleep(0.35)
-        fetch_url = f"{base}efetch.fcgi?db=pubmed&id={pmid}&retmode=xml{auth}"
-        r = requests.get(fetch_url, timeout=15)
-        if r.status_code != 200 or b"<?xml" not in r.content:
-            continue
-        try:
-            root     = ET.fromstring(r.content)
-            title_el = root.find(".//ArticleTitle")
-            title    = "".join(title_el.itertext()).strip() if title_el is not None else "No Title"
-            if not title:
-                title = "No Title"
-            abstract = " ".join(
-                p.text for p in root.findall(".//AbstractText") if p.text
-            )
-            year_el  = root.find(".//PubDate/Year")
-            month_el = root.find(".//PubDate/Month")
-            year     = year_el.text  if year_el  is not None else str(datetime.now().year)
-            month    = month_el.text if month_el is not None else "01"
-            month_map = {
-                "Jan":"01","Feb":"02","Mar":"03","Apr":"04","May":"05","Jun":"06",
-                "Jul":"07","Aug":"08","Sep":"09","Oct":"10","Nov":"11","Dec":"12"
-            }
-            month = month_map.get(month, month.zfill(2))
-            papers.append({
-                "pmid":     pmid,
-                "title":    title.strip(),
-                "abstract": abstract.strip(),
-                "pub_date": f"{year}-{month}-01",
-                "url":      f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-            })
-        except ET.ParseError:
-            print(f"  Bad XML for PMID {pmid}")
+        time.sleep(0.3)
+        fetch_url = f"{base_url}efetch.fcgi?db=pubmed&id={pmid}&retmode=xml{auth}"
+        fetch_res = requests.get(fetch_url)
+        if fetch_res.status_code == 200 and b"<?xml" in fetch_res.content:
+            try:
+                root         = ET.fromstring(fetch_res.content)
+                title_el     = root.find(".//ArticleTitle")
+                abstract_els = root.findall(".//AbstractText")
+                title        = title_el.text if title_el is not None else "No Title"
+                abstract     = " ".join([p.text for p in abstract_els if p.text])
+
+                # Pull publication date for the Notion Date field
+                year_el  = root.find(".//PubDate/Year")
+                month_el = root.find(".//PubDate/Month")
+                year     = year_el.text if year_el is not None else str(datetime.now().year)
+                month    = month_el.text if month_el is not None else "01"
+                month_map = {"Jan":"01","Feb":"02","Mar":"03","Apr":"04","May":"05","Jun":"06",
+                             "Jul":"07","Aug":"08","Sep":"09","Oct":"10","Nov":"11","Dec":"12"}
+                month = month_map.get(month, month.zfill(2))
+
+                papers.append({
+                    "title":    title,
+                    "abstract": abstract,
+                    "pub_date": f"{year}-{month}-01",
+                    "url":      f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                })
+            except ET.ParseError:
+                print(f"  Bad XML for {pmid}")
+                continue
     return papers
 
 
-# -- Gemini: single-paper structured analysis ---------------------------------
+# ── Step 3: Analyze a single paper with Gemini ───────────────────────────────
 
-def analyze_paper(paper: dict):
-    prompt = f"""You are a biomedical research assistant. Analyze this study and return structured JSON.
+def analyze_paper(paper):
+    prompt = f"""Analyze this study and return JSON with exactly these keys:
+- summary: one sentence main finding
+- methods: study design, sample size, duration
+- population: who was studied (age, condition, etc.)
+- effect_sizes: key stats like OR, HR, p-values. If absent say 'Not reported'
+- hypothesis: one concrete new research question this inspires
 
 Title: {paper['title']}
-Abstract: {paper['abstract']}
+Abstract: {paper['abstract']}"""
 
-Return ONLY valid JSON with exactly these keys:
-- summary: One clear sentence summarizing the main finding.
-- methods: Study design and methods used (e.g. RCT, cohort, n=X, duration).
-- population: Who was studied (age range, condition, inclusion criteria).
-- effect_sizes: Key quantitative results (OR, HR, p-values, confidence intervals). If not reported, say "Not reported".
-- hypothesis: One concrete new research question or grant idea this finding inspires.
-"""
-    try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
-        raw    = json.loads(response.text)
-        result = raw[0] if isinstance(raw, list) else raw
-        for k in ("summary","methods","population","effect_sizes","hypothesis"):
-            if k not in result:
-                result[k] = "Not extracted"
-        return result
-    except Exception as e:
-        print(f"  Gemini analysis failed for '{paper['title'][:50]}': {e}")
-        return None
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-preview-04-17",
+        contents=prompt,
+        config={'response_mime_type': 'application/json'}
+    )
+    raw = json.loads(response.text)
+    result = raw[0] if isinstance(raw, list) else raw
+    # Fill any missing keys so Notion never gets an empty value
+    for k in ("summary", "methods", "population", "effect_sizes", "hypothesis"):
+        if k not in result:
+            result[k] = "Not extracted"
+    return result
 
 
-# -- Gemini: cross-paper contradiction + hypothesis synthesis -----------------
+# ── Step 4: Cross-paper synthesis — contradictions + new hypotheses ───────────
 
-def synthesize_batch(papers_with_analysis: list) -> dict:
-    if len(papers_with_analysis) < 2:
-        return {
-            "contradictions": "Only one new paper this run — no cross-paper comparison possible.",
-            "new_hypotheses": ""
-        }
+def synthesize_batch(analyzed_papers):
+    if len(analyzed_papers) < 2:
+        return {"contradictions": "Only one paper this run.", "new_hypotheses": ""}
 
     summaries = "\n\n".join(
-        f"[{i+1}] {p['title']} ({p['pub_date'][:4]}): {p['analysis']['summary']}"
-        for i, p in enumerate(papers_with_analysis)
+        f"[{i+1}] {p['title']}: {p['analysis']['summary']}"
+        for i, p in enumerate(analyzed_papers)
     )
-    prompt = f"""You are a research synthesis expert reviewing {len(papers_with_analysis)} recent papers on the same topic.
+    prompt = f"""You are a research synthesis expert. Review these {len(analyzed_papers)} papers:
 
 {summaries}
 
-Return ONLY valid JSON with exactly these keys:
-- contradictions: Describe any conflicting findings between studies, referencing paper numbers. If none found, say "No direct contradictions detected."
-- new_hypotheses: 2-3 novel research hypotheses that emerge from reading these studies together.
-"""
-    try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
-        raw = json.loads(response.text)
-        return raw[0] if isinstance(raw, list) else raw
-    except Exception as e:
-        print(f"  Synthesis failed: {e}")
-        return {"contradictions": "Synthesis unavailable.", "new_hypotheses": ""}
+Return JSON with exactly these keys:
+- contradictions: conflicting findings between papers (cite paper numbers). If none, say 'No direct contradictions detected.'
+- new_hypotheses: 2-3 novel research hypotheses that emerge from reading these together."""
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-preview-04-17",
+        contents=prompt,
+        config={'response_mime_type': 'application/json'}
+    )
+    raw = json.loads(response.text)
+    return raw[0] if isinstance(raw, list) else raw
 
 
-# -- Notion: push one row -----------------------------------------------------
+# ── Step 5: Push one paper to Notion ─────────────────────────────────────────
 
-def push_to_notion(paper: dict, analysis: dict, synthesis: dict, query: str) -> bool:
-    url     = "https://api.notion.com/v1/pages"
-    headers = {
-        "Authorization":  f"Bearer {NOTION_TOKEN}",
-        "Notion-Version": "2022-06-28",
-        "Content-Type":   "application/json",
-    }
-
-    def rt(text: str) -> list:
-        # "type" key is required -- omitting it causes Notion to silently drop the field
-        return [{"type": "text", "text": {"content": str(text)[:2000]}}]
+def push_to_notion(paper, analysis, synthesis, query):
+    notion_url = "https://api.notion.com/v1/pages"
+    headers    = {"Authorization": f"Bearer {NOTION_TOKEN}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"}
 
     contradiction_note = synthesis.get("contradictions", "")
     new_hypotheses     = synthesis.get("new_hypotheses", "")
 
-    full_hypothesis = "\n\n".join(filter(None, [
-        analysis.get("hypothesis", ""),
-        f"[Cross-paper hypotheses]\n{new_hypotheses}" if new_hypotheses else "",
-    ]))
+    full_hypothesis = analysis.get("hypothesis", "")
+    if new_hypotheses:
+        full_hypothesis += f"\n\n[Cross-paper]\n{new_hypotheses}"
 
     is_flagged = (
         bool(contradiction_note)
         and "no direct contradictions" not in contradiction_note.lower()
-        and "unavailable"              not in contradiction_note.lower()
-        and "only one"                 not in contradiction_note.lower()
+        and "only one paper"           not in contradiction_note.lower()
     )
+
+    def rt(text):
+        return [{"text": {"content": str(text)[:2000]}}]
 
     payload = {
         "parent": {"database_id": DATABASE_ID},
         "properties": {
-            "Name":         {"title":     rt(paper["title"])},
+            "Name":         {"title":     [{"text": {"content": paper['title']}}]},
             "Date":         {"date":      {"start": paper["pub_date"]}},
             "Summary":      {"rich_text": rt(analysis.get("summary", ""))},
             "Methods":      {"rich_text": rt(analysis.get("methods", ""))},
@@ -231,76 +171,75 @@ def push_to_notion(paper: dict, analysis: dict, synthesis: dict, query: str) -> 
             "EffectsSizes": {"rich_text": rt(analysis.get("effect_sizes", ""))},
             "Hypothesis":   {"rich_text": rt(full_hypothesis)},
             "Contradicts":  {"rich_text": rt(contradiction_note)},
-            "Link":         {"url":       paper["url"]},
+            "Link":         {"url":       paper['url']},
             "Query":        {"rich_text": rt(query)},
             "Status":       {"select":    {"name": "Flagged" if is_flagged else "New"}},
-        },
+        }
     }
 
-    res = requests.post(url, headers=headers, json=payload, timeout=15)
-    if res.status_code == 200:
+    notion_res = requests.post(notion_url, headers=headers, json=payload)
+    if notion_res.status_code == 200:
+        print(f"  Pushed: '{paper['title'][:50]}...'")
         return True
     else:
-        print(f"  Notion error {res.status_code}:")
-        try:
-            err = res.json()
-            print(f"    message: {err.get('message', 'none')}")
-            print(f"    code:    {err.get('code', 'none')}")
-        except Exception:
-            print(f"    raw: {res.text}")
+        print(f"  Notion Error {notion_res.status_code}: {notion_res.json().get('message', notion_res.text)}")
         return False
 
 
-# -- Main ---------------------------------------------------------------------
+# ── Main ──────────────────────────────────────────────────────────────────────
 
-def run_scan():
-    print(f"\n{'='*60}")
+def run_agent():
+    print(f"\n{'='*55}")
     print(f"Scan started: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'='*60}")
+    print(f"{'='*55}")
 
-    # Pull existing Notion URLs once for the whole run — deduplication source of truth
-    existing_urls = get_existing_pubmed_urls()
+    existing_urls = get_existing_urls()
 
-    with open("keywords.txt") as f:
-        queries = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+    with open("keywords.txt", "r") as f:
+        queries = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
     for query in queries:
         print(f"\nQuery: {query}")
-        papers = get_papers(query)
-
+        papers    = get_papers(query)
         new_papers = [p for p in papers if p["url"] not in existing_urls]
+
         if not new_papers:
             print("  No new papers since last run.")
             continue
         print(f"  {len(new_papers)} new paper(s) to process.")
 
-        # Step 1: Analyze each paper individually
+        # Analyze each paper individually
         analyzed = []
         for paper in new_papers:
-            print(f"  Analyzing: {paper['title'][:65]}...")
-            analysis = analyze_paper(paper)
-            if analysis:
+            print(f"  Analyzing: {paper['title'][:60]}...")
+            try:
+                analysis = analyze_paper(paper)
                 analyzed.append({**paper, "analysis": analysis})
+            except Exception as e:
+                print(f"  Gemini failed: {e}")
             time.sleep(1)
 
         if not analyzed:
             continue
 
-        # Step 2: Cross-paper synthesis
-        print(f"  Synthesizing batch of {len(analyzed)} paper(s)...")
-        synthesis = synthesize_batch(analyzed)
-        print(f"  Contradictions: {synthesis.get('contradictions','')[:100]}")
+        # Cross-paper synthesis for this query's batch
+        print(f"  Synthesizing {len(analyzed)} paper(s)...")
+        try:
+            synthesis = synthesize_batch(analyzed)
+            print(f"  Contradictions: {synthesis.get('contradictions','')[:80]}")
+        except Exception as e:
+            print(f"  Synthesis failed: {e}")
+            synthesis = {"contradictions": "", "new_hypotheses": ""}
 
-        # Step 3: Push to Notion
+        # Push each paper to Notion
         for entry in analyzed:
             success = push_to_notion(entry, entry["analysis"], synthesis, query)
             if success:
-                print(f"  Pushed: '{entry['title'][:55]}...'")
-                existing_urls.add(entry["url"])  # prevent cross-query dupes within same run
+                existing_urls.add(entry["url"])  # block cross-query dupes in same run
             time.sleep(0.5)
 
     print(f"\nScan complete: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 
 if __name__ == "__main__":
-    run_scan()
+    run_agent()
