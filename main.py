@@ -51,10 +51,10 @@ def get_existing_urls():
 
 # ── Step 2: Fetch papers from PubMed ─────────────────────────────────────────
 
-def get_papers(query):
+def get_papers(y):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     auth     = f"&api_key={PUBMED_KEY}" if PUBMED_KEY else ""
-    search_url = f"{base_url}esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax=5&sort=date{auth}"
+    search_url = f"{base_url}esearch.fcgi?db=pubmed&term={y}&retmode=json&retmax=5&sort=date{auth}"
 
     try:
         res = requests.get(search_url)
@@ -154,7 +154,7 @@ def synthesize_batch(analyzed_papers):
 
 # ── Step 5: Push to Notion ───────────────────────────────────────────────────
 
-def push_to_notion(paper, analysis, synthesis, query):
+def push_to_notion(paper, analysis, synthesis, y):
     notion_url = "https://api.notion.com/v1/pages"
     headers    = {
         "Authorization": f"Bearer {NOTION_TOKEN}", 
@@ -181,8 +181,8 @@ def push_to_notion(paper, analysis, synthesis, query):
             "Hypothesis":   {"rich_text": rt(full_hypothesis)},
             "Contradicts":  {"rich_text": rt(contradiction_note)},
             "Link":         {"url":       paper['url']},
-            "Query":        {"rich_text": rt(query)},
-            "Status":       {"select":    {"name": "New"}},
+            #"Query":        {"rich_text": rt(query)}, <---400 error
+            #"Status":       {"select":    {"name": "New"}},
         }
     }
 
