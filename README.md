@@ -286,8 +286,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Questions? Open an issue or reach out:
 
 - **GitHub Issues:** [Report a bug](https://github.com/yourusername/pubmed-research-automator/issues)
-- **Email:** your.email@example.com
-
+- **Email:** Zacharyhcolvin@gmail.com
 ---
 
 <div align="center">
