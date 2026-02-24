@@ -1,23 +1,44 @@
 name: Research Co-Pilot
+
 on:
   schedule:
     - cron: '0 9 * * 1' # Runs automatically every Monday at 9 AM UTC
-  workflow_dispatch: # This adds the "Magic Button" for your brother
+  workflow_dispatch:
+    inputs:
+      keywords:
+        description: 'Search keywords (separate multiple with semicolons, e.g., "CRISPR gene therapy; alzheimer biomarkers")'
+        required: true
+        default: 'machine learning healthcare'
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      
       - name: Install dependencies
         run: pip install google-genai requests
-      - name: Run Script
+      
+      - name: Run Script (Manual)
+        if: github.event_name == 'workflow_dispatch'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          PUBMED_API_KEY: ${{ secrets.PUBMED_API_KEY }}
+          SEARCH_KEYWORDS: ${{ github.event.inputs.keywords }}
+        run: python main.py
+      
+      - name: Run Script (Scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          PUBMED_API_KEY: ${{ secrets.PUBMED_API_KEY }}
         run: python main.py
