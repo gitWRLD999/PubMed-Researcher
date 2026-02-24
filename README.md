@@ -8,12 +8,14 @@ An intelligent agent that monitors PubMed for new research papers, analyzes them
 
 ## ✨ Features
 
+- **🎯 GitHub Actions UI** — Run searches with custom keywords directly from GitHub (no code commits needed!)
 - **🔍 Automated PubMed Searches** — Query multiple research topics from a simple keyword file
 - **🤖 AI-Powered Analysis** — Extract summaries, methods, populations, effect sizes, and hypothesis using Gemini
 - **🧠 Cross-Study Synthesis** — Identify contradictions and generate novel research questions across papers
 - **📊 Notion Integration** — Automatically populate a structured database with analyzed papers
 - **🚫 Duplicate Prevention** — Track existing papers to avoid redundant entries
 - **⚡ Rate-Limited & Respectful** — Built-in delays to respect API limits
+- **⏰ Scheduled Runs** — Automatically search for new papers every Monday
 
 ---
 
@@ -95,20 +97,64 @@ microbiome mental health
 
 Lines starting with `#` are ignored.
 
+**Note:** This file is used for scheduled runs. For manual runs, you can input keywords directly via GitHub Actions UI!
+
+### GitHub Actions Setup (Optional but Recommended)
+
+1. **Copy the workflow file** to `.github/workflows/research-copilot.yml` in your repo
+2. **Add secrets** in GitHub:
+   - Go to your repo → Settings → Secrets and variables → Actions
+   - Add these secrets:
+     - `GEMINI_API_KEY`
+     - `NOTION_TOKEN`
+     - `NOTION_DATABASE_ID`
+     - `PUBMED_API_KEY` (optional)
+
+3. **Enable GitHub Actions**:
+   - Go to Actions tab
+   - Enable workflows if prompted
+
+Now you can run searches from GitHub's UI without committing code changes!
+
 ---
 
 ## 🚀 Usage
 
-Run the script:
+### Option 1: Run via GitHub Actions (Recommended)
+
+**Manual Run with Custom Keywords:**
+
+1. Go to your repository on GitHub
+2. Click **Actions** tab
+3. Select **Research Co-Pilot** workflow
+4. Click **Run workflow** button
+5. Enter your keywords in the text box (separate multiple with semicolons):
+   ```
+   CRISPR gene therapy; alzheimer biomarkers; microbiome mental health
+   ```
+6. Click **Run workflow**
+
+**Scheduled Run:**
+
+The workflow automatically runs every Monday at 9 AM UTC using keywords from `keywords.txt`.
+
+### Option 2: Run Locally
 
 ```bash
+python main.py
+```
+
+**With custom keywords via environment variable:**
+
+```bash
+export SEARCH_KEYWORDS="machine learning healthcare; CRISPR therapy"
 python main.py
 ```
 
 ### What Happens:
 
 1. **Fetches existing papers** from your Notion database
-2. **Searches PubMed** for each keyword in `keywords.txt`
+2. **Searches PubMed** for each keyword (from GitHub input, environment variable, or `keywords.txt`)
 3. **Analyzes each new paper** with Gemini AI
 4. **Synthesizes findings** across the batch
 5. **Pushes results** to Notion
@@ -286,7 +332,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Questions? Open an issue or reach out:
 
 - **GitHub Issues:** [Report a bug](https://github.com/yourusername/pubmed-research-automator/issues)
-- **Email:** Zacharyhcolvin@gmail.com
+- **Email:** your.email@example.com
+
 ---
 
 <div align="center">
